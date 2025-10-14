@@ -1,0 +1,24 @@
+<configuration>
+    <!-- Consola simple -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Nivel por defecto -->
+    <root level="INFO">
+        <appender-ref ref="STDOUT" />
+    </root>
+
+    <!-- Silenciar lo ruidoso -->
+    <logger name="io.netty" level="WARN"/>
+    <logger name="org.asynchttpclient" level="WARN"/>
+    <logger name="org.openqa.selenium" level="WARN"/>
+    <logger name="net.thucydides" level="INFO"/>
+    <logger name="net.serenitybdd" level="INFO"/>
+
+    <!-- Si aún ves demasiado, sube a WARN estos dos: -->
+    <!-- <logger name="net.thucydides" level="WARN"/> -->
+    <!-- <logger name="net.serenitybdd" level="WARN"/> -->
+</configuration>

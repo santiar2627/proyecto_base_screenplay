@@ -1,0 +1,67 @@
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'   # Usa agente hospedado de Microsoft
+
+variables:
+  WRAPPER: './gradlew'
+  TEST_RUNNER: 'TestRunnerConsultarUsuarios'   # Ajusta al nombre real de tu runner JUnit
+  apiUrl: 'https://reqres.in'                  # Puedes sobreescribirlo en Variables del pipeline
+
+steps:
+  - task: UseJavaVersion@1
+    displayName: 'Set JDK 11'
+    inputs:
+      versionSpec: '11'
+      architecture: 'x64'
+
+  - script: chmod +x $(WRAPPER)
+    displayName: 'Make gradlew executable (Linux)'
+
+  # Limpieza sin tests
+  - task: Gradle@2
+    displayName: 'Gradle clean (no tests)'
+    inputs:
+      gradleWrapperFile: '$(WRAPPER)'
+      tasks: 'clean -x test'
+      publishJUnitResults: false
+
+  # Compilación sin tests
+  - task: Gradle@2
+    displayName: 'Gradle build (no tests)'
+    inputs:
+      gradleWrapperFile: '$(WRAPPER)'
+      tasks: 'build -x test'
+      publishJUnitResults: false
+
+  # Ejecuta SOLO el runner de API (puedes pasar -Dapi.url aquí)
+  - task: Gradle@2
+    displayName: 'Gradle test (API)'
+    inputs:
+      gradleWrapperFile: '$(WRAPPER)'
+      tasks: 'test --tests $(TEST_RUNNER) --info -Dapi.url=$(apiUrl)'
+      publishJUnitResults: false
+
+  # Genera reportes Serenity (si tu build los crea con aggregate)
+  - task: Gradle@2
+    displayName: 'Serenity aggregate'
+    inputs:
+      gradleWrapperFile: '$(WRAPPER)'
+      tasks: 'aggregate'
+      publishJUnitResults: false
+
+  # Publica resultados JUnit
+  - task: PublishTestResults@2
+    displayName: 'Publish JUnit results'
+    inputs:
+      testResultsFormat: 'JUnit'
+      testResultsFiles: '**/build/test-results/test/*.xml'
+      failTaskOnFailedTests: true
+
+  # Publica el sitio Serenity como artefacto
+  - task: PublishPipelineArtifact@1
+    displayName: 'Publish Serenity report'
+    inputs:
+      targetPath: '$(System.DefaultWorkingDirectory)/target/site/serenity'
+      artifact: 'serenity-report'

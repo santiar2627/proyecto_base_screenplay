@@ -1,0 +1,171 @@
+pipeline {
+  agent { label params.AGENTE_EJECUCION ?: 'linux' }
+
+  // Herramientas instaladas en Jenkins (Manage Jenkins > Global Tool Configuration)
+  tools {
+    jdk 'JDK11'        // Ajusta al nombre exacto configurado en Jenkins
+  }
+
+  options {
+    timestamps()
+    ansiColor('xterm')
+    skipDefaultCheckout()
+    // Si NO usas los plugins de Splunk, elimina estas dos líneas:
+    // sendSplunkConsoleLog()
+    // splunkinsJobOption enableDiagram: true
+  }
+
+  environment {
+    NOMBRE_PROYECTO_GIT = 'base-project-qa'
+    // Por si necesitas un token para tu API en el futuro:
+    // API_KEY = credentials('API_KEY_CREDENTIALS_ID')
+  }
+
+  parameters {
+    string(name: 'AGENTE_EJECUCION', defaultValue: 'linux',
+           description: 'Label del agente para ejecutar el pipeline')
+    string(name: 'SCM_URL',          defaultValue: '', description: 'URL del repositorio Git')
+    string(name: 'SCM_CREDENTIALS',  defaultValue: '', description: 'ID de credenciales en Jenkins')
+    string(name: 'SCM_BRANCH',       defaultValue: 'main', description: 'Rama a clonar/compilar')
+    string(name: 'TEST_RUNNER',      defaultValue: 'TestRunnerConsultarUsuarios',
+           description: 'Clase de Runner JUnit (CucumberWithSerenity)')
+    string(name: 'API_URL',          defaultValue: 'https://reqres.in',
+           description: 'Base URL de la API a probar (se pasa como -Dapi.url)')
+    booleanParam(name: 'SONARQUBE_ENABLED', defaultValue: false, description: 'Ejecutar análisis SonarQube')
+    string(name: 'SONAR_SERVER', defaultValue: 'SonarQube', description: 'Nombre de servidor Sonar en Jenkins')
+    string(name: 'EMAIL_TO', defaultValue: '', description: 'Destinatarios de notificación (coma separada)')
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        sh 'git config --global --replace-all http.sslVerify false'
+        checkout([
+          $class: 'GitSCM',
+          branches: [[name: params.SCM_BRANCH]],
+          doGenerateSubmoduleConfigurations: false,
+          extensions: [],
+          userRemoteConfigs: [[credentialsId: params.SCM_CREDENTIALS, url: params.SCM_URL]]
+        ])
+      }
+    }
+
+    stage('Preparar build') {
+      steps {
+        sh 'chmod +x ./gradlew'
+        sh './gradlew --version'
+      }
+    }
+
+    stage('Compilar (sin tests)') {
+      steps {
+        sh './gradlew clean build -x test --info'
+      }
+    }
+
+    stage('Ejecutar pruebas') {
+      steps {
+        // Pasamos la base URL via -Dapi.url
+        sh "./gradlew test --tests ${params.TEST_RUNNER} -Dapi.url=${params.API_URL} --info"
+      }
+      post {
+        always {
+          // Publica resultados JUnit (Gradle genera en build/test-results/test)
+          junit allowEmptyResults: true, testResults: 'build/test-results/test/*.xml'
+
+          // Reporte Serenity (por defecto target/site/serenity)
+          publishHTML(target: [
+            reportDir: 'target/site/serenity',
+            reportFiles: 'index.html',
+            reportName: 'Serenity Report',
+            allowMissing: true,
+            alwaysLinkToLastBuild: true,
+            keepAll: true
+          ])
+
+          // Archiva evidencias (útil para “desplegar”/adjuntar en downstream)
+          archiveArtifacts artifacts: 'target/site/serenity/**', allowEmptyArchive: true
+        }
+      }
+    }
+
+    stage('SonarQube (opcional)') {
+      when { expression { return params.SONARQUBE_ENABLED } }
+      steps {
+        withSonarQubeEnv(params.SONAR_SERVER) {
+          sh "./gradlew sonarqube -Dsonar.projectKey=${env.NOMBRE_PROYECTO_GIT} -Dsonar.projectName=${env.NOMBRE_PROYECTO_GIT} -Dsonar.projectVersion=${env.BUILD_ID} -x test --info"
+        }
+      }
+    }
+
+    stage('Quality Gate (opcional)') {
+      when { expression { return params.SONARQUBE_ENABLED } }
+      steps {
+        timeout(time: 20, unit: 'MINUTES') {
+          def qg = waitForQualityGate()
+          echo "Quality Gate: ${qg.status}"
+          if (qg.status != 'OK') {
+            error "Quality Gate failed: ${qg.status}"
+          }
+        }
+      }
+    }
+
+    stage('Publicar evidencias (HTML)') {
+      steps {
+        // Este stage es redundante si ya publicaste en post, se deja como ejemplo extra.
+        publishHTML(target: [
+          reportDir: 'target/site/serenity',
+          reportFiles: 'index.html',
+          reportName: 'Evidencias de Pruebas',
+          allowMissing: true,
+          alwaysLinkToLastBuild: true,
+          keepAll: true
+        ])
+      }
+    }
+  }
+
+  post {
+    always {
+      echo "Build: ${currentBuild.currentResult}"
+    }
+    success {
+      script {
+        if (params.EMAIL_TO?.trim()) {
+          emailext(
+            subject: "SUCCESS - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+            body: """\
+              <p>✅ Pipeline OK</p>
+              <p><b>Job:</b> ${env.JOB_NAME} #${env.BUILD_NUMBER}</p>
+              <p><b>Runner:</b> ${params.TEST_RUNNER}</p>
+              <p><b>API:</b> ${params.API_URL}</p>
+              <p>Reporte Serenity: <a href="${env.BUILD_URL}artifact/target/site/serenity/index.html">Abrir</a></p>
+            """,
+            to: params.EMAIL_TO,
+            mimeType: 'text/html'
+          )
+        }
+      }
+    }
+    failure {
+      script {
+        if (params.EMAIL_TO?.trim()) {
+          emailext(
+            subject: "FAILURE - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+            body: """\
+              <p>❌ Pipeline FAILED</p>
+              <p><b>Job:</b> ${env.JOB_NAME} #${env.BUILD_NUMBER}</p>
+              <p><b>Runner:</b> ${params.TEST_RUNNER}</p>
+              <p><b>API:</b> ${params.API_URL}</p>
+              <p>Ver consola: <a href="${env.BUILD_URL}console">Console Output</a></p>
+            """,
+            to: params.EMAIL_TO,
+            mimeType: 'text/html'
+          )
+        }
+      }
+    }
+  }
+}

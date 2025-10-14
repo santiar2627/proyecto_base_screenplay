@@ -1,0 +1,33 @@
+# Gradle
+.gradle/
+build/
+out/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IntelliJ / IDEA
+.idea/
+*.iml
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# VS Code
+.vscode/
+
+# Logs / reports
+*.log
+target/
+downloaded-files/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jacoco
+*.exec
+**/reports/jacoco/
+
+# Serenity
+**/target/site/serenity/**
