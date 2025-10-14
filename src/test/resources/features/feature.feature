@@ -9,3 +9,9 @@ Feature: Funcionalidad de la prueba
     Then respuesta esperada
 
 
+    Scenario: Prueba tecnica
+      Given  precondicion del caso de prueba
+      When accion realizada por el actor en el aplicativo
+      Then respuesta esperada
+
+
