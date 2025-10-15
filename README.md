@@ -1,7 +1,5 @@
 **Proyecto base para automatizacion de pruebas con Serenity Screenplay**
 
-Este proyecto actualiza el proyecto base de sofka descrito en:
-https://git.sofka.com.co/sofka-automation/serenity-screenplay/proyectosbase/proyectobasescreenplay
 
 Proyecto inicial para comenzar a automatizar pruebas con la libreria Serenity utilizando el patron de diseño Screenplay utilizando versiones actualizadas a Serenity 4.2.15
 y gradle 8.10
